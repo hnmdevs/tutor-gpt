@@ -23,10 +23,16 @@ if (process.env.STRIPE_SECRET_KEY) {
 
 // Note: supabaseAdmin uses the SERVICE_ROLE_KEY which you must only use in a secure server-side context
 // as it has admin privileges and overwrites RLS policies!
-const supabaseAdmin = createClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-);
+const getSupabaseAdmin = () => {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  
+  if (!supabaseUrl || !supabaseServiceKey) {
+    throw new Error('Supabase environment variables are required');
+  }
+  
+  return createClient<Database>(supabaseUrl, supabaseServiceKey);
+};
 
 const createFreeTrialSubscription = async (userId: string) => {
   const subscriptionData: TablesInsert<'subscriptions'> = {
@@ -49,7 +55,7 @@ const createFreeTrialSubscription = async (userId: string) => {
       .replace('Z', ''), // 1 year
   };
 
-  const { error: insertError } = await supabaseAdmin
+  const { error: insertError } = await getSupabaseAdmin()
     .from('subscriptions')
     .insert([subscriptionData]);
 
@@ -63,7 +69,7 @@ const createFreeTrialSubscription = async (userId: string) => {
 };
 
 const decrementFreeMessages = async (userId: string) => {
-  const { data: subscription, error: subError } = await supabaseAdmin
+  const { data: subscription, error: subError } = await getSupabaseAdmin()
     .from('subscriptions')
     .select('*')
     .eq('user_id', userId)
@@ -77,7 +83,7 @@ const decrementFreeMessages = async (userId: string) => {
     (subscription.metadata as { freeMessages: number })?.freeMessages ?? 0;
   if (currentCount <= 0) return false;
 
-  const { error: updateError } = await supabaseAdmin
+  const { error: updateError } = await getSupabaseAdmin()
     .from('subscriptions')
     .update({
       metadata: { freeMessages: currentCount - 1 },
@@ -101,7 +107,7 @@ const upsertProductRecord = async (product: Stripe.Product) => {
     metadata: product.metadata,
   };
 
-  const { error: upsertError } = await supabaseAdmin
+  const { error: upsertError } = await getSupabaseAdmin()
     .from('products')
     .upsert([productData]);
   if (upsertError) {
@@ -133,7 +139,7 @@ const upsertPriceRecord = async (
   };
 
   // attempt upsert
-  const { error: upsertError } = await supabaseAdmin
+  const { error: upsertError } = await getSupabaseAdmin()
     .from('prices')
     .upsert([priceData]);
 
@@ -155,7 +161,7 @@ const upsertPriceRecord = async (
 };
 
 const deleteProductRecord = async (product: Stripe.Product) => {
-  const { error: deletionError } = await supabaseAdmin
+  const { error: deletionError } = await getSupabaseAdmin()
     .from('products')
     .delete()
     .eq('id', product.id);
@@ -165,7 +171,7 @@ const deleteProductRecord = async (product: Stripe.Product) => {
 };
 
 const deletePriceRecord = async (price: Stripe.Price) => {
-  const { error: deletionError } = await supabaseAdmin
+  const { error: deletionError } = await getSupabaseAdmin()
     .from('prices')
     .delete()
     .eq('id', price.id);
@@ -175,7 +181,7 @@ const deletePriceRecord = async (price: Stripe.Price) => {
 };
 
 const upsertCustomerToSupabase = async (uuid: string, customerId: string) => {
-  const { error: upsertError } = await supabaseAdmin
+  const { error: upsertError } = await getSupabaseAdmin()
     .from('customers')
     .upsert([{ id: uuid, stripe_customer_id: customerId }]);
 
@@ -204,7 +210,7 @@ const createOrRetrieveCustomer = async ({
 }) => {
   // Check if the customer already exists in Supabase
   const { data: existingSupabaseCustomer, error: queryError } =
-    await supabaseAdmin
+    await getSupabaseAdmin()
       .from('customers')
       .select('*')
       .eq('id', uuid)
@@ -237,7 +243,7 @@ const createOrRetrieveCustomer = async ({
   if (existingSupabaseCustomer && stripeCustomerId) {
     // If Supabase has a record but doesn't match Stripe, update Supabase record
     if (existingSupabaseCustomer.stripe_customer_id !== stripeCustomerId) {
-      const { error: updateError } = await supabaseAdmin
+      const { error: updateError } = await getSupabaseAdmin()
         .from('customers')
         .update({ stripe_customer_id: stripeCustomerId })
         .eq('id', uuid);
@@ -280,7 +286,7 @@ const copyBillingDetailsToCustomer = async (
   if (!name || !phone || !address) return;
   //@ts-expect-error address type string | null not assignable to type string | undefined
   await stripe.customers.update(customer, { name, phone, address });
-  const { error: updateError } = await supabaseAdmin
+  const { error: updateError } = await getSupabaseAdmin()
     .from('users')
     .update({
       billing_address: { ...address },
@@ -297,7 +303,7 @@ const manageSubscriptionStatusChange = async (
   createAction = false
 ) => {
   // Get customer's UUID from mapping table.
-  const { data: customerData, error: noCustomerError } = await supabaseAdmin
+  const { data: customerData, error: noCustomerError } = await getSupabaseAdmin()
     .from('customers')
     .select('id')
     .eq('stripe_customer_id', customerId)
@@ -346,7 +352,7 @@ const manageSubscriptionStatusChange = async (
       : null,
   };
 
-  const { error: upsertError } = await supabaseAdmin
+  const { error: upsertError } = await getSupabaseAdmin()
     .from('subscriptions')
     .upsert([subscriptionData], { onConflict: 'user_id' });
   if (upsertError)
