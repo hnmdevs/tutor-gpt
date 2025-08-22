@@ -109,7 +109,7 @@ const nextConfig: NextConfig = {
     ];
   },
 
-  output: 'standalone',
+  // output: 'standalone', // Only needed for Docker deployments, not Vercel
 
   // experimental: {
   //   instrumentationHook: true,
