@@ -9,8 +9,8 @@ import { captureException } from "@sentry/nextjs";
 // Validate ARCJET_KEY is available at module load time
 const ARCJET_KEY = process.env.ARCJET_KEY;
 if (!ARCJET_KEY) {
-	throw new Error(
-		"ARCJET_KEY environment variable is required. Please add it to your .env.local file.\n",
+	console.warn(
+		"⚠️ ARCJET_KEY environment variable is not set. Bot protection will be disabled.",
 	);
 }
 
@@ -43,7 +43,7 @@ function logBotProtectionEvent(
 /**
  * Main Arcjet client for global bot protection
  */
-const aj = arcjet({
+const aj = ARCJET_KEY ? arcjet({
 	key: ARCJET_KEY,
 	rules: [
 		detectBot({
@@ -52,12 +52,12 @@ const aj = arcjet({
 			allow: ["CATEGORY:SEARCH_ENGINE"],
 		}),
 	],
-});
+}) : null;
 
 /**
  * Arcjet client specifically for chat endpoint rate limiting
  */
-const chatRateLimitClient = arcjet({
+const chatRateLimitClient = ARCJET_KEY ? arcjet({
 	key: ARCJET_KEY,
 	characteristics: ["ip.src"], // Track by IP address
 	rules: [
@@ -73,12 +73,12 @@ const chatRateLimitClient = arcjet({
 			max: 8,
 		}),
 	],
-});
+}) : null;
 
 /**
  * Arcjet client for WAF protection on chat endpoints
  */
-const chatWAFClient = arcjet({
+const chatWAFClient = ARCJET_KEY ? arcjet({
 	key: ARCJET_KEY,
 	rules: [
 		// Shield WAF protection
@@ -86,9 +86,9 @@ const chatWAFClient = arcjet({
 			mode: "LIVE",
 		}),
 	],
-});
+}) : null;
 
-export const siteSignupProtectionClient = arcjet({
+export const siteSignupProtectionClient = ARCJET_KEY ? arcjet({
 	key: ARCJET_KEY,
 	rules: [
 		protectSignup({
@@ -107,7 +107,7 @@ export const siteSignupProtectionClient = arcjet({
 			},
 		}),
 	],
-});
+}) : null;
 
 /**
  * Check bot protection for global middleware use
@@ -116,6 +116,14 @@ export async function checkBotProtection(request: Request): Promise<{
 	allowed: boolean;
 	reason?: string;
 }> {
+	// If Arcjet is not configured, allow all requests
+	if (!aj) {
+		return {
+			allowed: true,
+			reason: "Bot protection disabled - ARCJET_KEY not configured",
+		};
+	}
+
 	try {
 		// Run Arcjet bot detection (includes built-in search engine allowlist)
 		const decision = await aj.protect(request);
@@ -156,6 +164,14 @@ export async function checkChatRateLimit(request: Request): Promise<{
 	remaining?: number;
 	resetTime?: number;
 }> {
+	// If Arcjet is not configured, allow all requests
+	if (!chatRateLimitClient) {
+		return {
+			allowed: true,
+			reason: "Rate limiting disabled - ARCJET_KEY not configured",
+		};
+	}
+
 	try {
 		// Run Arcjet protection (bot detection + rate limiting)
 		// Search engines are automatically allowed via CATEGORY:SEARCH_ENGINE
@@ -235,6 +251,14 @@ export async function checkChatWAF(request: Request): Promise<{
 	allowed: boolean;
 	reason?: string;
 }> {
+	// If Arcjet is not configured, allow all requests
+	if (!chatWAFClient) {
+		return {
+			allowed: true,
+			reason: "WAF protection disabled - ARCJET_KEY not configured",
+		};
+	}
+
 	try {
 		// Run Arcjet Shield WAF protection
 		const decision = await chatWAFClient.protect(request);
